@@ -1,0 +1,26 @@
+name: AetherPS4 iOS Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build iOS app
+        run: |
+          cd AetherPS4-iOS
+          xcodebuild \
+            -project AetherPS4-iOS.xcodeproj \
+            -scheme AetherPS4-iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
