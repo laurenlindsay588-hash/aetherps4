@@ -106,6 +106,63 @@ jobs:
 
           echo "All required FEXCore libraries are present."
 
+      - name: Build shadps4 iOS static libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$GITHUB_WORKSPACE"
+          IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CLANG="$(xcrun --sdk iphoneos --find clang)"
+          CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
+          BUILD="$ROOT/runtime/build/shadps4-ios"
+
+          # FEXCore was staged into $BUILD/fexcore-ios-libs. Configure in that same
+          # tree so externals land on the -L paths baked into the Xcode project
+          # (externals/libpng/libpng16.a, and libshadps4_ios.a at the build root).
+          cmake -S "$ROOT" -B "$BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.4 \
+            -DCMAKE_C_COMPILER="$CLANG" \
+            -DCMAKE_CXX_COMPILER="$CLANGXX" \
+            -DCMAKE_FIND_ROOT_PATH="$IOS_SDK" \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DENABLE_SHADPS4_IOS_LIB=ON \
+            -DENABLE_FEX_GUEST_CPU=ON \
+            -DENABLE_DISCORD_RPC=OFF \
+            -DENABLE_UPDATER=OFF \
+            -DENABLE_TESTS=OFF \
+            -DFEXCORE_GUEST_CPU_SOURCE_DIR="$ROOT/runtime/sources/fexcore-darwin" \
+            -DFEXCORE_GUEST_CPU_BUILD_DIR="$ROOT/runtime/build/fexcore-ios-build"
+
+          cmake --build "$BUILD" --target shadps4_ios --parallel
+
+          PNG_DIR="$BUILD/externals/libpng"
+          if [ -f "$PNG_DIR/libpng16.a" ] && [ ! -e "$PNG_DIR/libpng.a" ]; then
+            ln -s libpng16.a "$PNG_DIR/libpng.a"
+          fi
+
+          if [ ! -f "$BUILD/libshadps4_ios.a" ]; then
+            found="$(find "$BUILD" -name libshadps4_ios.a -print -quit)"
+            if [ -z "$found" ]; then
+              echo "ERROR: libshadps4_ios.a was not produced"
+              find "$BUILD" -name '*.a' | head -100
+              exit 1
+            fi
+            cp -f "$found" "$BUILD/libshadps4_ios.a"
+          fi
+
+          test -f "$PNG_DIR/libpng16.a"
+          test -f "$BUILD/libshadps4_ios.a"
+          echo "iOS static libraries ready:"
+          ls -lh "$PNG_DIR"/libpng*.a "$BUILD/libshadps4_ios.a"
+
       - name: Build iOS app
         run: |
           cd AetherPS4-iOS
