@@ -1,9 +1,16 @@
 require 'xcodeproj'
 require 'fileutils'
+require 'pathname'
 
 project_name = 'AetherPS4-iOS'
 project_dir = 'AetherPS4-iOS'
 project_path = "#{project_dir}/#{project_name}.xcodeproj"
+project_dir_abs = File.absolute_path(project_dir)
+
+def project_relative(path, project_dir_abs)
+  rel = Pathname.new(File.absolute_path(path)).relative_path_from(Pathname.new(project_dir_abs)).to_s
+  "$(PROJECT_DIR)/#{rel}"
+end
 
 FileUtils.mkdir_p(project_dir)
 
@@ -67,10 +74,15 @@ app_target.resources_build_phase.add_file_reference(assets_ref)
 # Bridging header
 bridging_header = project.main_group.new_file(File.absolute_path("#{project_dir}/AetherPS4-iOS-Bridging-Header.h"))
 
-# Add all .a libraries from the CMake build directory
+# Add all .a libraries from the CMake build directory.
+# Xcode 15+/ld-prime emits `-lpng16` (not the .a path) and does NOT recurse `/**`
+# in LIBRARY_SEARCH_PATHS, so every directory that actually holds a .a must be
+# listed explicitly. Absolute /Users/... paths also break CI.
 libs_group = project.main_group.new_group('Libs')
 build_dir = File.absolute_path('runtime/build/shadps4-ios')
-Dir.glob("#{build_dir}/**/*.a").each do |lib|
+lib_search_dirs = [build_dir]
+seen_lib_names = {}
+Dir.glob("#{build_dir}/**/*.a").sort.each do |lib|
   next if lib.include?('CMakeFiles')
   # No 'ffmpeg-' exclusion here: that was a workaround for a stale x86_64 ffmpeg
   # build left over in this same build directory from an earlier (pre-iOS-cross-
@@ -78,9 +90,18 @@ Dir.glob("#{build_dir}/**/*.a").each do |lib|
   # only ever produces genuine arm64 libraries (verified via `lipo -info` on every
   # .a here), so excluding anything by path substring is unnecessary and would
   # incorrectly drop the real iOS FFmpeg libs (externals/ffmpeg-94dde08/lib/*.a).
+  base = File.basename(lib)
+  # libpng.a is a compatibility symlink of libpng16.a. Linking both makes Xcode
+  # emit `-lpng16 -lpng`; keep the versioned archive only.
+  next if base == 'libpng.a'
+  next if seen_lib_names[base]
+  seen_lib_names[base] = true
   lib_ref = libs_group.new_file(lib)
   app_target.frameworks_build_phase.add_file_reference(lib_ref, true)
+  lib_search_dirs << File.dirname(lib)
 end
+lib_search_dirs.uniq!
+library_search_paths = ['$(inherited)'] + lib_search_dirs.map { |d| project_relative(d, project_dir_abs) }
 
 # Embed libshadps4_ios.dylib
 dylib_path = "#{build_dir}/libshadps4_ios.dylib"
@@ -114,9 +135,15 @@ app_target.build_configurations.each do |config|
   config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
   config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
   config.build_settings['OTHER_LDFLAGS'] = ['-ObjC', '-lc++']
-  config.build_settings['LIBRARY_SEARCH_PATHS'] = ['$(inherited)', build_dir, "#{build_dir}/**"]
-  config.build_settings['FRAMEWORK_SEARCH_PATHS'] = ['$(inherited)', "#{File.absolute_path(project_dir)}/Frameworks"]
-  config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', File.absolute_path('src/platform/ios'), File.absolute_path('src/core/pkg_extract')]
+  config.build_settings['LIBRARY_SEARCH_PATHS'] = library_search_paths
+  config.build_settings['FRAMEWORK_SEARCH_PATHS'] = ['$(inherited)', '$(PROJECT_DIR)/Frameworks']
+  config.build_settings['HEADER_SEARCH_PATHS'] = [
+    '$(inherited)',
+    '$(PROJECT_DIR)/../src/platform/ios',
+    '$(PROJECT_DIR)/../src/core/pkg_extract',
+    '$(PROJECT_DIR)/../src/core/sysmodules_import',
+    '$(PROJECT_DIR)/../src/core/user_profile_bridge',
+  ]
   config.build_settings['SWIFT_OBJC_BRIDGING_HEADER'] = "AetherPS4-iOS-Bridging-Header.h"
   
   # Important for JIT and entitlements
@@ -126,3 +153,5 @@ end
 
 project.save
 puts "Generated #{project_path}"
+puts "LIBRARY_SEARCH_PATHS (#{library_search_paths.length} entries):"
+library_search_paths.each { |p| puts "  #{p}" }
