@@ -13,9 +13,103 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install build tools
+        run: |
+          brew install ninja
+          cmake --version
+          ninja --version
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Build FEXCore for iOS ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$GITHUB_WORKSPACE"
+          FEX_SRC="$ROOT/runtime/sources/fexcore-darwin"
+          FEX_BUILD="$ROOT/runtime/build/fexcore-ios-build"
+          FEX_STAGE="$ROOT/runtime/build/shadps4-ios/fexcore-ios-libs"
+
+          rm -rf "$FEX_BUILD"
+          mkdir -p "$FEX_STAGE"
+
+          IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CLANG="$(xcrun --sdk iphoneos --find clang)"
+          CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
+
+          echo "iOS SDK: $IOS_SDK"
+          echo "Clang: $CLANG"
+          echo "Clang++: $CLANGXX"
+
+          cmake -S "$FEX_SRC" -B "$FEX_BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER="$CLANG" \
+            -DCMAKE_CXX_COMPILER="$CLANGXX" \
+            -DCMAKE_INSTALL_PREFIX="$FEX_BUILD/install" \
+            -DBUILD_FEXCORE_ONLY=ON \
+            -DBUILD_FEXCORE_SMOKE=OFF \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_FEX_LINUX_TESTS=OFF \
+            -DBUILD_THUNKS=OFF \
+            -DBUILD_FEXCONFIG=OFF \
+            -DENABLE_LTO=OFF \
+            -DENABLE_CCACHE=OFF \
+            -DENABLE_GDB_SYMBOLS=OFF \
+            -DENABLE_ZYDIS=OFF \
+            -DENABLE_VIXL_DISASSEMBLER=OFF \
+            -DENABLE_VIXL_SIMULATOR=OFF \
+            -DENABLE_JEMALLOC_GLIBC_ALLOC=OFF \
+            -DENABLE_FEX_ALLOCATOR=ON \
+            -DENABLE_OFFLINE_TELEMETRY=OFF \
+            -DTUNE_CPU=none \
+            -DTUNE_ARCH=generic
+
+          cmake --build "$FEX_BUILD" \
+            --target FEXCore FEXCore_Base Common CommonTools cpp-optparse JemallocLibs \
+            --parallel
+
+          echo "Staging FEXCore static libraries..."
+
+          find "$FEX_BUILD" -type f -name 'lib*.a' -print
+
+          find "$FEX_BUILD" -type f -name 'lib*.a' -exec cp -f {} "$FEX_STAGE/" \;
+
+          echo "Libraries staged:"
+          ls -lh "$FEX_STAGE"
+
+          REQUIRED_LIBS="
+          libcpp-optparse.a
+          libCommon.a
+          libCommonTools.a
+          libFEXCore.a
+          libFEXCore_Base.a
+          libJemallocLibs.a
+          librpmalloc.a
+          libfmt.a
+          libtiny-json.a
+          libxxhash.a
+          libsoftfloat_3e.a
+          libcephes_128bit.a
+          "
+
+          for lib in $REQUIRED_LIBS; do
+            if [ ! -f "$FEX_STAGE/$lib" ]; then
+              echo "ERROR: Missing $lib"
+              exit 1
+            fi
+          done
+
+          echo "All required FEXCore libraries are present."
+
       - name: Build iOS app
         run: |
           cd AetherPS4-iOS
+
           xcodebuild \
             -project AetherPS4-iOS.xcodeproj \
             -scheme AetherPS4-iOS \
@@ -24,3 +118,37 @@ jobs:
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find "$GITHUB_WORKSPACE" \
+            -type d \
+            -path '*/Build/Products/Release-iphoneos/AetherPS4-iOS.app' \
+            -print -quit)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: AetherPS4-iOS.app was not found"
+            exit 1
+          fi
+
+          mkdir -p "$GITHUB_WORKSPACE/ipa/Payload"
+          cp -R "$APP_PATH" "$GITHUB_WORKSPACE/ipa/Payload/AetherPS4-iOS.app"
+
+          cd "$GITHUB_WORKSPACE/ipa"
+          zip -r "$GITHUB_WORKSPACE/AetherPS4-iOS-unsigned.ipa" Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPS4-iOS-unsigned
+          path: AetherPS4-iOS-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload FEXCore libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPS4-FEXCore-iOS-libs
+          path: runtime/build/shadps4-ios/fexcore-ios-libs/*.a
+          if-no-files-found: error
