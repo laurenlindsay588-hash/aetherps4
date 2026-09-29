@@ -15,7 +15,9 @@ jobs:
 
       - name: Install build tools
         run: |
-          brew install ninja
+          set -euo pipefail
+
+          command -v ninja >/dev/null || brew install ninja
           cmake --version
           ninja --version
           xcodebuild -version
@@ -37,10 +39,6 @@ jobs:
           IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           CLANG="$(xcrun --sdk iphoneos --find clang)"
           CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
-
-          echo "iOS SDK: $IOS_SDK"
-          echo "Clang: $CLANG"
-          echo "Clang++: $CLANGXX"
 
           cmake -S "$FEX_SRC" -B "$FEX_BUILD" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -73,14 +71,7 @@ jobs:
             --target FEXCore FEXCore_Base Common CommonTools cpp-optparse JemallocLibs \
             --parallel
 
-          echo "Staging FEXCore static libraries..."
-
-          find "$FEX_BUILD" -type f -name 'lib*.a' -print
-
           find "$FEX_BUILD" -type f -name 'lib*.a' -exec cp -f {} "$FEX_STAGE/" \;
-
-          echo "Libraries staged:"
-          ls -lh "$FEX_STAGE"
 
           REQUIRED_LIBS="
           libcpp-optparse.a
@@ -104,7 +95,64 @@ jobs:
             fi
           done
 
-          echo "All required FEXCore libraries are present."
+      - name: Build libpng for iOS ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$GITHUB_WORKSPACE"
+          PNG_SRC="$ROOT/runtime/sources/libpng"
+          PNG_BUILD="$ROOT/runtime/build/libpng-ios-build"
+          PNG_STAGE="$ROOT/runtime/build/shadps4-ios/externals/libpng"
+
+          rm -rf "$PNG_BUILD"
+          mkdir -p "$PNG_STAGE"
+
+          IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CLANG="$(xcrun --sdk iphoneos --find clang)"
+
+          if [ ! -d "$PNG_SRC" ]; then
+            echo "libpng source not found at:"
+            echo "$PNG_SRC"
+            echo ""
+            echo "Repository libpng directories:"
+            find "$ROOT/runtime" -maxdepth 5 -type d -iname '*png*' -print
+            exit 1
+          fi
+
+          cmake -S "$PNG_SRC" -B "$PNG_BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER="$CLANG" \
+            -DCMAKE_INSTALL_PREFIX="$PNG_BUILD/install" \
+            -DPNG_SHARED=OFF \
+            -DPNG_STATIC=ON \
+            -DPNG_TESTS=OFF \
+            -DPNG_TOOLS=OFF \
+            -DPNG_BUILD_ZLIB=OFF \
+            -DZLIB_LIBRARY="$ROOT/runtime/build/shadps4-ios/_deps/zlib-build/libz.a" \
+            -DZLIB_INCLUDE_DIR="$ROOT/runtime/build/shadps4-ios/_deps/zlib-src" \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+
+          cmake --build "$PNG_BUILD" --parallel
+
+          find "$PNG_BUILD" -type f -name 'libpng16.a' -print
+
+          PNG_LIB="$(find "$PNG_BUILD" -type f -name 'libpng16.a' -print -quit)"
+
+          if [ -z "$PNG_LIB" ]; then
+            echo "ERROR: libpng16.a was not produced"
+            find "$PNG_BUILD" -type f -name '*.a' -print
+            exit 1
+          fi
+
+          cp -f "$PNG_LIB" "$PNG_STAGE/libpng16.a"
+
+          echo "libpng staged:"
+          ls -lh "$PNG_STAGE/libpng16.a"
 
       - name: Build shadps4 iOS static libraries
         shell: bash
@@ -165,6 +213,8 @@ jobs:
 
       - name: Build iOS app
         run: |
+          set -euo pipefail
+
           cd AetherPS4-iOS
 
           xcodebuild \
@@ -177,6 +227,7 @@ jobs:
             build
 
       - name: Package unsigned IPA
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -208,4 +259,11 @@ jobs:
         with:
           name: AetherPS4-FEXCore-iOS-libs
           path: runtime/build/shadps4-ios/fexcore-ios-libs/*.a
+          if-no-files-found: error
+
+      - name: Upload libpng
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPS4-libpng-iOS
+          path: runtime/build/shadps4-ios/externals/libpng/libpng16.a
           if-no-files-found: error
