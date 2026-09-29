@@ -121,7 +121,7 @@ jobs:
             -DPNG_STATIC=ON \
             -DPNG_TESTS=OFF \
             -DPNG_TOOLS=OFF \
-            -DPNG_BUILD_ZLIB=ON \
+            -DZLIB_ROOT="$IOS_SDK/usr" \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
           cmake --build "$PNG_BUILD" --parallel
