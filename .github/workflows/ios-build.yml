@@ -95,134 +95,111 @@ jobs:
             fi
           done
 
-      - name: Build shadps4 iOS static libraries
+      - name: Build libpng for iOS ARM64
         shell: bash
         run: |
           set -euo pipefail
 
           ROOT="$GITHUB_WORKSPACE"
+          PNG_SRC="$ROOT/externals/libpng"
+          ZLIB_SRC="$ROOT/externals/zlib-ng"
+          PNG_BUILD="$ROOT/runtime/build/libpng-ios-build"
+          PNG_STAGE="$ROOT/runtime/build/shadps4-ios/externals/libpng"
+
+          echo "libpng source: $PNG_SRC"
+          echo "zlib source:   $ZLIB_SRC"
+
+          test -f "$PNG_SRC/CMakeLists.txt" || {
+            echo "ERROR: libpng CMakeLists.txt not found"
+            find "$ROOT/externals" -maxdepth 2 -type f -name CMakeLists.txt | grep -E 'png|zlib' || true
+            exit 1
+          }
+
+          test -f "$ZLIB_SRC/CMakeLists.txt" || {
+            echo "ERROR: zlib-ng CMakeLists.txt not found"
+            exit 1
+          }
+
+          rm -rf "$PNG_BUILD"
+          mkdir -p "$PNG_STAGE"
+
           IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           CLANG="$(xcrun --sdk iphoneos --find clang)"
-          CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
-          BUILD="$ROOT/runtime/build/shadps4-ios"
-          FEX_STAGE="$BUILD/fexcore-ios-libs"
 
-          mkdir -p "$FEX_STAGE"
+          cat > "$RUNNER_TEMP/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.20)
+project(AetherPS4LibPNG LANGUAGES C)
 
-          cmake -S "$ROOT" -B "$BUILD" -G Ninja \
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+
+set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(WITH_GTEST OFF CACHE BOOL "" FORCE)
+set(WITH_NEW_STRATEGIES ON CACHE BOOL "" FORCE)
+set(ZLIB_COMPAT ON CACHE BOOL "" FORCE)
+
+add_subdirectory("__ZLIB_SRC__" zlib-build)
+
+if(NOT TARGET ZLIB::ZLIB)
+    add_library(ZLIB::ZLIB ALIAS zlib)
+endif()
+
+set(ZLIB_INCLUDE_DIRS
+    "${CMAKE_BINARY_DIR}/zlib-build"
+    "__ZLIB_SRC__"
+    CACHE PATH "" FORCE
+)
+
+set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+set(PNG_STATIC ON CACHE BOOL "" FORCE)
+set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+
+add_subdirectory("__PNG_SRC__" libpng-build)
+CMAKE
+
+          sed -i \
+            -e "s|__ZLIB_SRC__|$ZLIB_SRC|g" \
+            -e "s|__PNG_SRC__|$PNG_SRC|g" \
+            "$RUNNER_TEMP/CMakeLists.txt"
+
+          cmake \
+            -S "$RUNNER_TEMP" \
+            -B "$PNG_BUILD" \
+            -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.4 \
             -DCMAKE_C_COMPILER="$CLANG" \
-            -DCMAKE_CXX_COMPILER="$CLANGXX" \
-            -DCMAKE_FIND_ROOT_PATH="$IOS_SDK" \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-            -DENABLE_SHADPS4_IOS_LIB=ON \
-            -DENABLE_FEX_GUEST_CPU=ON \
-            -DENABLE_DISCORD_RPC=OFF \
-            -DENABLE_UPDATER=OFF \
-            -DENABLE_TESTS=OFF \
-            -DFEXCORE_GUEST_CPU_SOURCE_DIR="$ROOT/runtime/sources/fexcore-darwin" \
-            -DFEXCORE_GUEST_CPU_BUILD_DIR="$ROOT/runtime/build/fexcore-ios-build"
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
-          cmake --build "$BUILD" --target shadps4_ios --parallel
+          cmake --build "$PNG_BUILD" \
+            --target png_static \
+            --parallel
 
-          if [ ! -f "$BUILD/libshadps4_ios.a" ]; then
-            found="$(find "$BUILD" -name libshadps4_ios.a -print -quit)"
-            if [ -z "$found" ]; then
-              echo "ERROR: libshadps4_ios.a was not produced"
-              find "$BUILD" -name '*.a' | head -100
-              exit 1
-            fi
-            cp -f "$found" "$BUILD/libshadps4_ios.a"
-          fi
+          echo "Searching for libpng16.a..."
+          find "$PNG_BUILD" -type f \( -name 'libpng16.a' -o -name 'libpng.a' \) -print
 
-      - name: Stage libpng16 into Xcode search path
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ROOT="$GITHUB_WORKSPACE"
-          BUILD="$ROOT/runtime/build/shadps4-ios"
-          PNG_STAGE="$BUILD/externals/libpng"
-          PNG_SRC="$ROOT/externals/libpng"
-          PNG_BUILD="$ROOT/runtime/build/libpng-ios-build"
-
-          mkdir -p "$PNG_STAGE" "$BUILD"
-
-          PNG_LIB="$(find "$BUILD" "$ROOT/runtime/build" -type f -name 'libpng16.a' ! -path '*/CMakeFiles/*' -print -quit || true)"
+          PNG_LIB="$(find "$PNG_BUILD" -type f -name 'libpng16.a' -print -quit)"
 
           if [ -z "$PNG_LIB" ]; then
-            echo "libpng16.a not produced by shadPS4 CMake; building externals/libpng"
-            if [ ! -d "$PNG_SRC" ]; then
-              echo "ERROR: libpng source missing at $PNG_SRC"
-              find "$ROOT" -maxdepth 4 -type d -iname '*png*' -print
-              exit 1
-            fi
-
-            IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-            CLANG="$(xcrun --sdk iphoneos --find clang)"
-            rm -rf "$PNG_BUILD"
-
-            ZLIB_ARGS=()
-            if [ -f "$BUILD/_deps/zlib-build/libz.a" ]; then
-              ZLIB_ARGS+=(
-                -DPNG_BUILD_ZLIB=OFF
-                -DZLIB_LIBRARY="$BUILD/_deps/zlib-build/libz.a"
-                -DZLIB_INCLUDE_DIR="$BUILD/_deps/zlib-src"
-              )
-            else
-              ZLIB_ARGS+=(-DPNG_BUILD_ZLIB=ON)
-            fi
-
-            cmake -S "$PNG_SRC" -B "$PNG_BUILD" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_SYSTEM_NAME=iOS \
-              -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-              -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
-              -DCMAKE_OSX_ARCHITECTURES=arm64 \
-              -DCMAKE_C_COMPILER="$CLANG" \
-              -DPNG_SHARED=OFF \
-              -DPNG_STATIC=ON \
-              -DPNG_TESTS=OFF \
-              -DPNG_TOOLS=OFF \
-              -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-              "${ZLIB_ARGS[@]}"
-
-            cmake --build "$PNG_BUILD" --parallel
-            PNG_LIB="$(find "$PNG_BUILD" -type f -name 'libpng16.a' -print -quit)"
-          fi
-
-          if [ -z "$PNG_LIB" ] || [ ! -f "$PNG_LIB" ]; then
             echo "ERROR: libpng16.a was not produced"
-            find "$ROOT/runtime/build" -type f -name '*png*.a' -print
+            echo "Static libraries produced:"
+            find "$PNG_BUILD" -type f -name '*.a' -print
             exit 1
           fi
 
           cp -f "$PNG_LIB" "$PNG_STAGE/libpng16.a"
-          cp -f "$PNG_LIB" "$BUILD/libpng16.a"
-          ln -sfn libpng16.a "$PNG_STAGE/libpng.a"
 
-          test -f "$PNG_STAGE/libpng16.a"
-          test -d "$PNG_STAGE"
-          echo "Staged libpng for Xcode:"
-          ls -lh "$PNG_STAGE"/libpng*.a "$BUILD/libpng16.a"
+          echo "SUCCESS: staged libpng16.a"
+          ls -lh "$PNG_STAGE/libpng16.a"
 
       - name: Build iOS app
         run: |
           set -euo pipefail
-
-          PNG_PATH="$GITHUB_WORKSPACE/runtime/build/shadps4-ios/externals/libpng/libpng16.a"
-          if [ ! -f "$PNG_PATH" ]; then
-            echo "ERROR: missing $PNG_PATH (Xcode -L path)"
-            find "$GITHUB_WORKSPACE/runtime/build" -name '*png*' -print
-            exit 1
-          fi
 
           cd AetherPS4-iOS
 
@@ -232,7 +209,6 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            LIBRARY_SEARCH_PATHS="$(PROJECT_DIR)/../runtime/build/shadps4-ios $(PROJECT_DIR)/../runtime/build/shadps4-ios/externals/libpng $(PROJECT_DIR)/../runtime/build/shadps4-ios/fexcore-ios-libs $(inherited)" \
             CODE_SIGNING_ALLOWED=NO \
             build
 
