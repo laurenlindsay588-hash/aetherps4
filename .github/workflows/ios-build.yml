@@ -13,15 +13,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build tools
+      - name: Check Apple build environment
         run: |
           set -euo pipefail
-
-          command -v ninja >/dev/null || brew install ninja
-          cmake --version
-          ninja --version
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
+          cmake --version
 
       - name: Build FEXCore for iOS ARM64
         shell: bash
@@ -48,7 +45,6 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_C_COMPILER="$CLANG" \
             -DCMAKE_CXX_COMPILER="$CLANGXX" \
-            -DCMAKE_INSTALL_PREFIX="$FEX_BUILD/install" \
             -DBUILD_FEXCORE_ONLY=ON \
             -DBUILD_FEXCORE_SMOKE=OFF \
             -DBUILD_TESTING=OFF \
@@ -71,28 +67,27 @@ jobs:
             --target FEXCore FEXCore_Base Common CommonTools cpp-optparse JemallocLibs \
             --parallel
 
-          find "$FEX_BUILD" -type f -name 'lib*.a' -exec cp -f {} "$FEX_STAGE/" \;
+          find "$FEX_BUILD" -type f -name 'lib*.a' \
+            -exec cp -f {} "$FEX_STAGE/" \;
 
-          REQUIRED_LIBS="
-          libcpp-optparse.a
-          libCommon.a
-          libCommonTools.a
-          libFEXCore.a
-          libFEXCore_Base.a
-          libJemallocLibs.a
-          librpmalloc.a
-          libfmt.a
-          libtiny-json.a
-          libxxhash.a
-          libsoftfloat_3e.a
-          libcephes_128bit.a
-          "
-
-          for lib in $REQUIRED_LIBS; do
-            if [ ! -f "$FEX_STAGE/$lib" ]; then
+          for lib in \
+            libcpp-optparse.a \
+            libCommon.a \
+            libCommonTools.a \
+            libFEXCore.a \
+            libFEXCore_Base.a \
+            libJemallocLibs.a \
+            librpmalloc.a \
+            libfmt.a \
+            libtiny-json.a \
+            libxxhash.a \
+            libsoftfloat_3e.a \
+            libcephes_128bit.a
+          do
+            test -f "$FEX_STAGE/$lib" || {
               echo "ERROR: Missing $lib"
               exit 1
-            fi
+            }
           done
 
       - name: Build libpng for iOS ARM64
@@ -106,19 +101,8 @@ jobs:
           PNG_BUILD="$ROOT/runtime/build/libpng-ios-build"
           PNG_STAGE="$ROOT/runtime/build/shadps4-ios/externals/libpng"
 
-          echo "libpng source: $PNG_SRC"
-          echo "zlib source:   $ZLIB_SRC"
-
-          test -f "$PNG_SRC/CMakeLists.txt" || {
-            echo "ERROR: libpng CMakeLists.txt not found"
-            find "$ROOT/externals" -maxdepth 2 -type f -name CMakeLists.txt | grep -E 'png|zlib' || true
-            exit 1
-          }
-
-          test -f "$ZLIB_SRC/CMakeLists.txt" || {
-            echo "ERROR: zlib-ng CMakeLists.txt not found"
-            exit 1
-          }
+          test -f "$PNG_SRC/CMakeLists.txt"
+          test -f "$ZLIB_SRC/CMakeLists.txt"
 
           rm -rf "$PNG_BUILD"
           mkdir -p "$PNG_STAGE"
@@ -126,78 +110,32 @@ jobs:
           IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           CLANG="$(xcrun --sdk iphoneos --find clang)"
 
-          cat > "$RUNNER_TEMP/CMakeLists.txt" <<'CMAKE'
-cmake_minimum_required(VERSION 3.20)
-project(AetherPS4LibPNG LANGUAGES C)
-
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-
-set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
-set(WITH_GTEST OFF CACHE BOOL "" FORCE)
-set(WITH_NEW_STRATEGIES ON CACHE BOOL "" FORCE)
-set(ZLIB_COMPAT ON CACHE BOOL "" FORCE)
-
-add_subdirectory("__ZLIB_SRC__" zlib-build)
-
-if(NOT TARGET ZLIB::ZLIB)
-    add_library(ZLIB::ZLIB ALIAS zlib)
-endif()
-
-set(ZLIB_INCLUDE_DIRS
-    "${CMAKE_BINARY_DIR}/zlib-build"
-    "__ZLIB_SRC__"
-    CACHE PATH "" FORCE
-)
-
-set(PNG_SHARED OFF CACHE BOOL "" FORCE)
-set(PNG_STATIC ON CACHE BOOL "" FORCE)
-set(PNG_TESTS OFF CACHE BOOL "" FORCE)
-set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
-set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
-
-add_subdirectory("__PNG_SRC__" libpng-build)
-CMAKE
-
-          sed -i \
-            -e "s|__ZLIB_SRC__|$ZLIB_SRC|g" \
-            -e "s|__PNG_SRC__|$PNG_SRC|g" \
-            "$RUNNER_TEMP/CMakeLists.txt"
-
-          cmake \
-            -S "$RUNNER_TEMP" \
-            -B "$PNG_BUILD" \
-            -G Ninja \
+          cmake -S "$PNG_SRC" -B "$PNG_BUILD" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_SYSROOT="$IOS_SDK" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_C_COMPILER="$CLANG" \
+            -DPNG_SHARED=OFF \
+            -DPNG_STATIC=ON \
+            -DPNG_TESTS=OFF \
+            -DPNG_TOOLS=OFF \
+            -DPNG_BUILD_ZLIB=ON \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
-          cmake --build "$PNG_BUILD" \
-            --target png_static \
-            --parallel
-
-          echo "Searching for libpng16.a..."
-          find "$PNG_BUILD" -type f \( -name 'libpng16.a' -o -name 'libpng.a' \) -print
+          cmake --build "$PNG_BUILD" --parallel
 
           PNG_LIB="$(find "$PNG_BUILD" -type f -name 'libpng16.a' -print -quit)"
 
-          if [ -z "$PNG_LIB" ]; then
-            echo "ERROR: libpng16.a was not produced"
-            echo "Static libraries produced:"
-            find "$PNG_BUILD" -type f -name '*.a' -print
-            exit 1
-          fi
+          test -n "$PNG_LIB"
 
           cp -f "$PNG_LIB" "$PNG_STAGE/libpng16.a"
 
-          echo "SUCCESS: staged libpng16.a"
           ls -lh "$PNG_STAGE/libpng16.a"
 
       - name: Build iOS app
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -222,10 +160,7 @@ CMAKE
             -path '*/Build/Products/Release-iphoneos/AetherPS4-iOS.app' \
             -print -quit)"
 
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: AetherPS4-iOS.app was not found"
-            exit 1
-          fi
+          test -n "$APP_PATH"
 
           mkdir -p "$GITHUB_WORKSPACE/ipa/Payload"
           cp -R "$APP_PATH" "$GITHUB_WORKSPACE/ipa/Payload/AetherPS4-iOS.app"
@@ -238,18 +173,4 @@ CMAKE
         with:
           name: AetherPS4-iOS-unsigned
           path: AetherPS4-iOS-unsigned.ipa
-          if-no-files-found: error
-
-      - name: Upload FEXCore libraries
-        uses: actions/upload-artifact@v4
-        with:
-          name: AetherPS4-FEXCore-iOS-libs
-          path: runtime/build/shadps4-ios/fexcore-ios-libs/*.a
-          if-no-files-found: error
-
-      - name: Upload libpng
-        uses: actions/upload-artifact@v4
-        with:
-          name: AetherPS4-libpng-iOS
-          path: runtime/build/shadps4-ios/externals/libpng/libpng16.a
           if-no-files-found: error
