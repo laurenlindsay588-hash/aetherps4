@@ -131,8 +131,10 @@ jobs:
           test -n "$PNG_LIB"
 
           cp -f "$PNG_LIB" "$PNG_STAGE/libpng16.a"
+          ln -sf libpng16.a "$PNG_STAGE/libpng.a"
 
           ls -lh "$PNG_STAGE/libpng16.a"
+          test -f "$PNG_STAGE/libpng.a"
 
       - name: Build iOS app
         shell: bash
