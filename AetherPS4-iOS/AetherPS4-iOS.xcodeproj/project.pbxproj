@@ -103,7 +103,6 @@
 		D27EEC54F5874FC6AF7554EB /* SettingsSocialsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D407A9325EB74D40B8A956B2 /* SettingsSocialsView.swift */; };
 		E758FB0D9FFF6E4458B217BB /* libtiny-json.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9355CEDF603E23975E5723D6 /* libtiny-json.a */; };
 		E7F6B05C5A02097342A2B3AF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01BBD4BECDF444DE8218732F /* ContentView.swift */; };
-		ECC106482B8B14403EE11D70 /* libpng.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 35C9E4CA9C0E0C237646DBD0 /* libpng.a */; };
 		F2FC62151B114CF11E461507 /* libhwinfo_mainboard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EB3F7FA4FE65734BE4DBC3ED /* libhwinfo_mainboard.a */; };
 		FC323A5E68E50A2FB9025B35 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2ECCC396D441E0F6955E4CB6 /* Foundation.framework */; };
 		FF4A3A6B642E08698B034482 /* BreakpointJIT.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A834CE2D563C4C040B9A722C /* BreakpointJIT.framework */; };
@@ -142,7 +141,6 @@
 		2D99CF6698E4497D59975C15 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = ../Info.plist; sourceTree = "<group>"; };
 		2ECCC396D441E0F6955E4CB6 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		33DEFA9DCB93040378FB1B26 /* GameLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GameLibrary.swift; path = Models/GameLibrary.swift; sourceTree = "<group>"; };
-		35C9E4CA9C0E0C237646DBD0 /* libpng.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libpng.a; path = "../runtime/build/shadps4-ios/externals/libpng/libpng.a"; sourceTree = "<group>"; };
 		39133C33C799E2AB872A8B44 /* libvulkan.dylib */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.dylib"; path = libvulkan.dylib; sourceTree = "<group>"; };
 		39B690015331C39738C71DEC /* EmulatorProcess.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EmulatorProcess.swift; path = Models/EmulatorProcess.swift; sourceTree = "<group>"; };
 		42188E0C43358D6C9173967E /* libpugixml.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libpugixml.a; path = "../runtime/build/shadps4-ios/externals/pugixml/libpugixml.a"; sourceTree = "<group>"; };
@@ -249,7 +247,6 @@
 				5901214D2C0DB23F26D455A7 /* libCommon.a in Frameworks */,
 				0A1CC35AD7F76DA8863051F4 /* libcephes_128bit.a in Frameworks */,
 				40A9458469FE169A8CAF019F /* libpng16.a in Frameworks */,
-				ECC106482B8B14403EE11D70 /* libpng.a in Frameworks */,
 				AB0C3D98F441A226DC56EA3A /* libTracyClient.a in Frameworks */,
 				27637185C05052755F776000 /* libfdk-aac.a in Frameworks */,
 				B122ACDBC46E6F8EED492EA6 /* libfreetype.a in Frameworks */,
@@ -407,7 +404,6 @@
 				2A21C8DBD761FAA9F42FBBEF /* libCommon.a */,
 				6793B33043D20704F7DC734E /* libcephes_128bit.a */,
 				BB375F617DA1B7CDD4BB1190 /* libpng16.a */,
-				35C9E4CA9C0E0C237646DBD0 /* libpng.a */,
 				E5678FD086376183104E2D92 /* libTracyClient.a */,
 				8BF837A1DB8F37D37DDB9CEB /* libfdk-aac.a */,
 				A8790409BBBFBE43328D49E6 /* libfreetype.a */,
